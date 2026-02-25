@@ -1,8 +1,7 @@
 #!/bin/bash
-
 set -e
 
-echo "🚀 Starting Mac Developer Setup..."
+echo "🚀 Starting macOS Developer Setup…"
 
 ########################################
 # Ask for sudo upfront
@@ -13,84 +12,134 @@ sudo -v
 # Install Xcode Command Line Tools
 ########################################
 if ! xcode-select -p &>/dev/null; then
-  echo "📦 Installing Xcode Command Line Tools..."
+  echo "📦 Installing Xcode Command Line Tools…"
   xcode-select --install
-  echo "⚠️ Complete installation popup, then re-run script."
+  echo "⚠ Complete install and re-run script."
   exit 1
 else
-  echo "✅ Xcode Command Line Tools already installed."
+  echo "✅ Xcode Command Line Tools installed."
 fi
 
 ########################################
-# Homebrew Setup + Permission Fix
+# Install Homebrew
 ########################################
-if command -v brew &>/dev/null; then
-  echo "✅ Homebrew already installed."
-
-  BREW_PREFIX=$(brew --prefix)
-
-  if [ ! -w "$BREW_PREFIX" ]; then
-    echo "🔧 Fixing Homebrew permissions..."
-    sudo chown -R "$USER" "$BREW_PREFIX"
-  fi
-
-else
-  echo "🍺 Installing Homebrew..."
+if ! command -v brew &>/dev/null; then
+  echo "🍺 Installing Homebrew…"
   /bin/bash -c "$(curl -fsSL https://raw.githubusercontent.com/Homebrew/install/HEAD/install.sh)"
 fi
 
 # Apple Silicon PATH fix
 if [[ $(uname -m) == "arm64" ]]; then
-  if ! grep -q 'brew shellenv' ~/.zprofile 2>/dev/null; then
-    echo 'eval "$(/opt/homebrew/bin/brew shellenv)"' >> ~/.zprofile
-    eval "$(/opt/homebrew/bin/brew shellenv)"
-  fi
+  eval "$(/opt/homebrew/bin/brew shellenv)"
 fi
 
 brew update
 
 ########################################
-# Install Core Packages
+# Essential CLI tools (Homebrew)
 ########################################
-PACKAGES=(git nvm yarn wget jq)
+FORMULAE=(
+  git
+  wget
+  jq
+  fish
+)
 
-for pkg in "${PACKAGES[@]}"; do
+for pkg in "${FORMULAE[@]}"; do
   if brew list "$pkg" &>/dev/null; then
     echo "✅ $pkg already installed."
   else
-    echo "📦 Installing $pkg..."
+    echo "📦 Installing $pkg…"
     brew install "$pkg"
   fi
 done
 
 ########################################
-# Setup NVM
+# GUI Apps (Casks)
 ########################################
-mkdir -p ~/.nvm
+CASKS=(
+  ghostty
+  font-geist-mono-nerd-font
+)
 
-if ! grep -q 'NVM_DIR' ~/.zshrc 2>/dev/null; then
-  echo 'export NVM_DIR="$HOME/.nvm"' >> ~/.zshrc
-  echo '[ -s "$(brew --prefix nvm)/nvm.sh" ] && \. "$(brew --prefix nvm)/nvm.sh"' >> ~/.zshrc
+for app in "${CASKS[@]}"; do
+  if brew list --cask "$app" &>/dev/null; then
+    echo "✅ $app installed."
+  else
+    echo "📦 Installing $app (cask)…"
+    brew install --cask "$app"
+  fi
+done
+
+# Upgrade all outdated apps
+echo "⬆️ Upgrading all outdated Homebrew formulae and casks…"
+brew update
+brew upgrade
+brew cu -a || true
+
+########################################
+# Set fish as default shell
+########################################
+FISH_PATH=$(command -v fish)
+if ! grep -q "$FISH_PATH" /etc/shells; then
+  echo "🐟 Adding fish to shells list…"
+  echo "$FISH_PATH" | sudo tee -a /etc/shells
+fi
+echo "🐟 Setting fish as default shell…"
+chsh -s "$FISH_PATH"
+
+########################################
+# Install mise
+########################################
+if ! command -v mise &>/dev/null; then
+  echo "📥 Installing mise…"
+  curl https://mise.run | sh
 fi
 
-source ~/.zshrc || true
-
-########################################
-# Install Node LTS
-########################################
-if ! command -v node &>/dev/null; then
-  echo "📦 Installing latest LTS Node..."
-  nvm install --lts
-  nvm alias default lts/*
-else
-  echo "✅ Node already installed."
+# Add mise activate to fish config
+if ! grep -q "mise activate fish" ~/.config/fish/config.fish 2>/dev/null; then
+  echo "✨ Activating mise in fish…"
+  echo 'eval "$(~/.local/bin/mise activate fish)"' >> ~/.config/fish/config.fish
 fi
 
 ########################################
-# Git Config
+# Node Install via mise
+########################################
+echo "📦 Installing Node (latest stable) via mise…"
+mise use --global node@latest
+
+########################################
+# Starship Prompt
+########################################
+if ! command -v starship &>/dev/null; then
+  echo "⭐ Installing starship prompt…"
+  curl -fsSL https://starship.rs/install.sh | sh -s -- --yes
+fi
+
+# Configure fish to init starship
+if ! grep -q "starship init fish" ~/.config/fish/config.fish 2>/dev/null; then
+  echo "starship init fish | source" >> ~/.config/fish/config.fish
+fi
+
+########################################
+# SSH key
+########################################
+if [ ! -f ~/.ssh/id_ed25519 ]; then
+  echo "🔐 Generating SSH key…"
+  read -p "Enter email for SSH key: " sshemail
+  ssh-keygen -t ed25519 -C "$sshemail"
+  eval "$(ssh-agent -s)"
+  ssh-add ~/.ssh/id_ed25519
+  echo ""
+  echo "📋 SSH public key:"
+  cat ~/.ssh/id_ed25519.pub
+fi
+
+########################################
+# Git config
 ########################################
 if ! git config --global user.name &>/dev/null; then
-  read -p "Enter your Git name: " gitname
+  read -p "Enter your Git user name: " gitname
   git config --global user.name "$gitname"
 fi
 
@@ -99,22 +148,6 @@ if ! git config --global user.email &>/dev/null; then
   git config --global user.email "$gitemail"
 fi
 
-########################################
-# SSH Setup
-########################################
-if [ ! -f ~/.ssh/id_ed25519 ]; then
-  echo "🔐 Generating SSH key..."
-  read -p "Enter email for SSH key: " sshemail
-  ssh-keygen -t ed25519 -C "$sshemail"
-  eval "$(ssh-agent -s)"
-  ssh-add ~/.ssh/id_ed25519
-  echo "📋 Copy this key to Bitbucket:"
-  cat ~/.ssh/id_ed25519.pub
-else
-  echo "✅ SSH key already exists."
-fi
-
 echo ""
-echo "🎉 Setup Complete!"
-echo "Restart your terminal or run: source ~/.zshrc"
-
+echo "🎉 Developer setup is complete!"
+echo "📀 Restart terminal to start using fish + starship + mise (Node installed)"
