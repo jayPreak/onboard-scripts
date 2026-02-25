@@ -1,128 +1,153 @@
 #!/bin/bash
 set -e
 
-echo "🚀 Starting macOS Developer Setup…"
+echo "🚀 Starting macOS Developer Setup..."
 
 ########################################
-# Ask for sudo upfront
-########################################
-sudo -v
-
-########################################
-# Install Xcode Command Line Tools
+# Xcode CLI Tools
 ########################################
 if ! xcode-select -p &>/dev/null; then
-  echo "📦 Installing Xcode Command Line Tools…"
+  echo "📦 Installing Xcode Command Line Tools..."
   xcode-select --install
-  echo "⚠ Complete install and re-run script."
+  echo "⚠ Complete popup, then re-run script."
   exit 1
 else
   echo "✅ Xcode Command Line Tools installed."
 fi
 
 ########################################
-# Install Homebrew
+# Homebrew
 ########################################
 if ! command -v brew &>/dev/null; then
-  echo "🍺 Installing Homebrew…"
+  echo "🍺 Installing Homebrew..."
   /bin/bash -c "$(curl -fsSL https://raw.githubusercontent.com/Homebrew/install/HEAD/install.sh)"
 fi
 
-# Apple Silicon PATH fix
-if [[ $(uname -m) == "arm64" ]]; then
-  eval "$(/opt/homebrew/bin/brew shellenv)"
-fi
-
+echo "🍺 Updating Homebrew..."
 brew update
 
-########################################
-# Essential CLI tools (Homebrew)
-########################################
-FORMULAE=(
-  git
-  wget
-  jq
-  fish
-)
+BREW_PREFIX="$(brew --prefix)"
 
-for pkg in "${FORMULAE[@]}"; do
-  if brew list "$pkg" &>/dev/null; then
-    echo "✅ $pkg already installed."
+########################################
+# Helpers
+########################################
+install_formula() {
+  if brew list --formula | grep -q "^$1\$"; then
+    echo "✅ $1 already installed."
   else
-    echo "📦 Installing $pkg…"
-    brew install "$pkg"
+    echo "📦 Installing $1..."
+    brew install "$1"
   fi
-done
+}
 
-########################################
-# GUI Apps (Casks)
-########################################
-CASKS=(
-  ghostty
-  font-geist-mono-nerd-font
-)
-
-for app in "${CASKS[@]}"; do
-  if brew list --cask "$app" &>/dev/null; then
-    echo "✅ $app installed."
+install_cask() {
+  if brew list --cask | grep -q "^$1\$"; then
+    echo "✅ $1 already installed."
+  elif [ -d "/Applications/${2}.app" ]; then
+    echo "⚠ ${2}.app already exists. Skipping."
   else
-    echo "📦 Installing $app (cask)…"
-    brew install --cask "$app"
+    echo "📦 Installing $1..."
+    brew install --cask "$1"
   fi
-done
-
-# Upgrade all outdated apps
-echo "⬆️ Upgrading all outdated Homebrew formulae and casks…"
-brew update
-brew upgrade
-brew cu -a || true
+}
 
 ########################################
-# Set fish as default shell
+# Core CLI
 ########################################
-FISH_PATH=$(command -v fish)
+install_formula git
+install_formula wget
+install_formula jq
+install_formula fish
+install_formula starship
+install_formula mise
+brew tap buo/cask-upgrade || true
+
+########################################
+# Fonts
+########################################
+brew tap homebrew/cask-fonts || true
+install_cask font-geist-mono-nerd-font "GeistMonoNerdFont"
+
+########################################
+# Terminal
+########################################
+install_cask ghostty Ghostty
+
+########################################
+# Configure Fish Shell
+########################################
+
+FISH_PATH="$BREW_PREFIX/bin/fish"
+
 if ! grep -q "$FISH_PATH" /etc/shells; then
-  echo "🐟 Adding fish to shells list…"
-  echo "$FISH_PATH" | sudo tee -a /etc/shells
-fi
-echo "🐟 Setting fish as default shell…"
-chsh -s "$FISH_PATH"
-
-########################################
-# Install mise
-########################################
-if ! command -v mise &>/dev/null; then
-  echo "📥 Installing mise…"
-  curl https://mise.run | sh
+  echo "🔧 Adding fish to allowed shells..."
+  echo "$FISH_PATH" | sudo tee -a /etc/shells > /dev/null
 fi
 
-# Add mise activate to fish config
-if ! grep -q "mise activate fish" ~/.config/fish/config.fish 2>/dev/null; then
-  echo "✨ Activating mise in fish…"
-  echo 'eval "$(~/.local/bin/mise activate fish)"' >> ~/.config/fish/config.fish
+CURRENT_SHELL="$(dscl . -read /Users/$USER UserShell | awk '{print $2}')"
+
+if [ "$CURRENT_SHELL" != "$FISH_PATH" ]; then
+  echo "🐟 Setting fish as default shell..."
+  chsh -s "$FISH_PATH"
+else
+  echo "✅ Fish already default."
 fi
 
 ########################################
-# Node Install via mise
+# Fish Config Setup
 ########################################
-echo "📦 Installing Node (latest stable) via mise…"
-mise use --global node@latest
 
-########################################
-# Starship Prompt
-########################################
-if ! command -v starship &>/dev/null; then
-  echo "⭐ Installing starship prompt…"
-  curl -fsSL https://starship.rs/install.sh | sh -s -- --yes
+FISH_CONFIG="$HOME/.config/fish/config.fish"
+mkdir -p "$(dirname "$FISH_CONFIG")"
+
+# Add Homebrew to PATH
+if ! grep -q "brew shellenv" "$FISH_CONFIG" 2>/dev/null; then
+  echo "" >> "$FISH_CONFIG"
+  echo "# Homebrew" >> "$FISH_CONFIG"
+  echo "eval ($BREW_PREFIX/bin/brew shellenv)" >> "$FISH_CONFIG"
 fi
 
-# Configure fish to init starship
-if ! grep -q "starship init fish" ~/.config/fish/config.fish 2>/dev/null; then
-  echo "starship init fish | source" >> ~/.config/fish/config.fish
+# Starship init
+if ! grep -q "starship init fish" "$FISH_CONFIG" 2>/dev/null; then
+  echo "" >> "$FISH_CONFIG"
+  echo "# Starship" >> "$FISH_CONFIG"
+  echo "starship init fish | source" >> "$FISH_CONFIG"
+fi
+
+# Mise activation
+if ! grep -q "mise activate fish" "$FISH_CONFIG" 2>/dev/null; then
+  echo "" >> "$FISH_CONFIG"
+  echo "# Mise" >> "$FISH_CONFIG"
+  echo "mise activate fish | source" >> "$FISH_CONFIG"
 fi
 
 ########################################
-# SSH key
+# Install Node via Mise
+########################################
+
+echo "📦 Installing Node 22 via mise..."
+mise use -g node@22
+
+########################################
+# Ghostty Config
+########################################
+
+GHOSTTY_CONFIG="$HOME/.config/ghostty/config"
+mkdir -p "$(dirname "$GHOSTTY_CONFIG")"
+
+if [ ! -f "$GHOSTTY_CONFIG" ]; then
+  cat <<EOF > "$GHOSTTY_CONFIG"
+font-family = GeistMono Nerd Font
+font-size = 14
+theme = dark
+EOF
+  echo "🖥 Ghostty config created."
+else
+  echo "✅ Ghostty config already exists."
+fi
+
+########################################
+# SSH key for bitbucket
 ########################################
 if [ ! -f ~/.ssh/id_ed25519 ]; then
   echo "🔐 Generating SSH key…"
@@ -148,6 +173,7 @@ if ! git config --global user.email &>/dev/null; then
   git config --global user.email "$gitemail"
 fi
 
+echo "🎉 Setup Complete."
 echo ""
-echo "🎉 Developer setup is complete!"
-echo "📀 Restart terminal to start using fish + starship + mise (Node installed)"
+echo "👉 Run: mise ls"
+echo "👉 Restart terminal or open Ghostty."

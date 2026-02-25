@@ -1,40 +1,117 @@
 #!/bin/bash
-
 set -e
 
-echo "🧹 Mac Developer Cleanup (Safe Mode)"
-echo "⚠️ This will NOT uninstall Homebrew."
+echo "🧹 Mac Developer Full Cleanup"
+echo "⚠ This will remove:"
+echo "  - Node (mise)"
+echo "  - mise"
+echo "  - fish"
+echo "  - starship"
+echo "  - ghostty"
+echo "  - nerd font"
+echo "  - cask-upgrade"
+echo ""
+read -p "Continue? (y/n): " confirm
 
-read -p "Are you sure you want to remove dev setup for THIS user only? (y/n): " confirm
-if [[ "$confirm" != "y" ]]; then
-  echo "Aborted."
-  exit 1
+if [ "$confirm" != "y" ]; then
+  echo "Cancelled."
+  exit 0
 fi
 
 ########################################
-# Remove Brew Packages (but not brew itself)
+# Reset Shell to macOS Default
 ########################################
-if command -v brew &>/dev/null; then
-  echo "Removing installed brew packages..."
-  brew uninstall --ignore-dependencies git nvm yarn wget jq 2>/dev/null || true
+
+CURRENT_SHELL="$(dscl . -read /Users/$USER UserShell | awk '{print $2}')"
+
+if [ "$CURRENT_SHELL" != "/bin/zsh" ]; then
+  echo "🔄 Resetting default shell to /bin/zsh..."
+  chsh -s /bin/zsh
 else
-  echo "Homebrew not found. Skipping brew package removal."
+  echo "✅ Shell already system default."
 fi
 
 ########################################
-# Remove NVM + Node Versions (User Only)
+# Remove fish FIRST (prevents mise recursion)
 ########################################
-if [ -d "$HOME/.nvm" ]; then
-  echo "Removing NVM and Node versions..."
-  rm -rf "$HOME/.nvm"
+
+echo "🗑 Cleaning fish functions and cache..."
+
+rm -rf "$HOME/.config/fish"
+rm -rf "$HOME/.local/share/fish"
+rm -rf "$HOME/.cache/fish"
+
+if brew list --formula | grep -q "^fish$"; then
+  echo "🗑 Removing fish..."
+  brew uninstall fish
+else
+  echo "✅ fish not installed."
 fi
 
 ########################################
-# Clean zsh additions (only lines we added)
+# Remove Node from Mise
 ########################################
-if [ -f "$HOME/.zshrc" ]; then
-  sed -i '' '/NVM_DIR/d' "$HOME/.zshrc" 2>/dev/null || true
-  sed -i '' '/nvm.sh/d' "$HOME/.zshrc" 2>/dev/null || true
+
+if command -v mise &>/dev/null; then
+  echo "🗑 Removing Node 22 from mise..."
+  mise uninstall node@22 || true
+fi
+
+########################################
+# Remove Brew Formulas
+########################################
+
+remove_formula() {
+  if brew list --formula | grep -q "^$1\$"; then
+    echo "🗑 Removing $1..."
+    brew uninstall "$1"
+  else
+    echo "✅ $1 not installed."
+  fi
+}
+
+remove_formula mise
+remove_formula starship
+remove_formula fish
+
+########################################
+# Remove Brew Casks
+########################################
+
+remove_cask() {
+  if brew list --cask | grep -q "^$1\$"; then
+    echo "🗑 Removing $1..."
+    brew uninstall --cask "$1"
+  else
+    echo "✅ $1 not installed."
+  fi
+}
+
+remove_cask ghostty
+remove_cask font-geist-mono-nerd-font
+brew untap buo/cask-upgrade || true
+
+########################################
+# Remove Config Files
+########################################
+
+echo "🗑 Cleaning config files..."
+
+rm -rf "$HOME/.config/fish"
+rm -rf "$HOME/.config/ghostty"
+rm -rf "$HOME/.local/share/mise"
+rm -rf "$HOME/.config/mise"
+
+########################################
+# Optional: Remove Homebrew
+########################################
+
+echo ""
+read -p "Remove Homebrew completely? (y/n): " remove_brew
+
+if [ "$remove_brew" = "y" ]; then
+  echo "🗑 Uninstalling Homebrew..."
+  /bin/bash -c "$(curl -fsSL https://raw.githubusercontent.com/Homebrew/install/HEAD/uninstall.sh)"
 fi
 
 ########################################
@@ -56,7 +133,4 @@ if [ -f "$HOME/.ssh/id_ed25519" ]; then
   fi
 fi
 
-echo ""
-echo "✅ Cleanup complete for THIS USER."
-echo "🍺 Homebrew remains installed system-wide."
-
+echo "✅ Cleanup Complete."
