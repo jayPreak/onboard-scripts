@@ -26,6 +26,7 @@ fi
 echo "🍺 Updating Homebrew..."
 brew update
 
+
 BREW_PREFIX="$(brew --prefix)"
 
 ########################################
@@ -145,6 +146,16 @@ EOF
 else
   echo "✅ Ghostty config already exists."
 fi
+
+########################################
+# Cask upgrade
+########################################
+echo "⬆ Upgrading casks..."
+if brew list --formula | grep -q "^cask-upgrade$"; then
+    echo "⬆ Upgrading casks..."
+    brew cu --yes --all
+  fi
+
 
 ########################################
 # SSH key for bitbucket
